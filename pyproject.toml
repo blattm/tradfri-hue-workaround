@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "tradfri-hue-workaround"
+version = "0.1.0"
+description = "Script for fixing colortemp and brightness update issue with IKEA Trådfri lights on Philips Hue Bridge"
+authors = ["Felix Zieger <mail@felixzieger.de>"]
+license = "MIT License"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+phue = "^1.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
