@@ -6,10 +6,10 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class TradfriLight():
-    def __init__(self, light, delay = 1.0):
+    def __init__(self, light, delay = 1.0, needs_brightness=True, needs_colortemp=True):
         # These to variables specify if lamp needs updating of brightness, colortemp or both
-        self.needs_brightness = False
-        self.needs_colortemp = False
+        self.needs_brightness = needs_brightness
+        self.needs_colortemp = needs_colortemp
         self._light = light
         self._last_brightness = light.brightness
         self._last_colortemp = light.colortemp
@@ -17,9 +17,11 @@ class TradfriLight():
         self._brightness_has_changed = False
         self._colortemp_has_changed = False
         self._t0 = time()
-        logging.info(f"Initialized TradfriLight with light ID {light.light_id} and delay {delay}")
+        logging.info(f"Initialized TradfriLight with light ID {light.light_id} and delay {delay} for " + ("brightness " if self.needs_brightness else "")+ ("color" if self.needs_colortemp else ""))
 
     def check_and_update_brightness(self):
+        if not self.needs_brightness:
+            return
         brightness = self._light.brightness
         logging.debug(f"Checking light ID {self._light.light_id}: current brightness {brightness}, last brightness {self._last_brightness}")
 
@@ -36,6 +38,8 @@ class TradfriLight():
         self._last_brightness = brightness
 
     def check_and_update_colortemp(self):
+        if not self.needs_colortemp:
+            return
         colortemp = self._light.colortemp
         logging.debug(f"Checking light ID {self._light.light_id}: current colortemp {colortemp}, last colortemp {self._last_colortemp}")
         if self._last_colortemp != colortemp:
@@ -52,9 +56,19 @@ class TradfriLight():
         self._last_colortemp = colortemp
 
 def main(bridge, args):
-    tradfri_ids = args.light_ids
+    brightness_ids = args.brightness
+    color_ids = args.color
+    tradfri_ids = sorted([*set(brightness_ids+color_ids)])
     light_list = bridge.get_light_objects()
-    tradfri_lights = [TradfriLight(l, delay=args.delay) for l in light_list if l.light_id in tradfri_ids]
+    tradfri_lights = [
+        TradfriLight(
+            l,
+            delay=args.delay,
+            needs_brightness=(l.light_id in brightness_ids),
+            needs_colortemp=(l.light_id in color_ids)
+        )
+        for l in light_list if l.light_id in tradfri_ids
+    ]
     logging.info(f"Started main loop with poll time {args.poll_time}")
 
     while True:
@@ -85,7 +99,8 @@ if __name__ == '__main__':
     delay_default = 0.3
     parser = argparse.ArgumentParser(description='Workaround script for IKEA Trådfri property update issue on Philips Hue Bridge. Simply run the script with bridge IP and Trådfrid light ID\'s as argument. Remember to push the bridge button before starting the script the first time')
     parser.add_argument('bridge_ip')
-    parser.add_argument('light_ids', nargs='*', type=float)
+    parser.add_argument('-c', '--color', nargs='*', type=int, default=[], metavar="ids", help="Light ids for which color needs fixing")
+    parser.add_argument('-b', '--brightness', nargs='*', type=int, default=[], metavar="ids", help="Light ids for which brightness needs fixing")
     parser.add_argument('-t', '--poll_time', default=poll_default, type=float, help=f'Set how often the lights are checked for property changes. Value in seconds ({poll_default})')
     parser.add_argument('-d', '--delay',type = float, help=f'How long to wait after attempted change before updating the property. Value in seconds ({delay_default})', default=delay_default)
     parser.add_argument('-l', '--list', action='store_true', required=False, default=False,help='List available lights')
@@ -99,8 +114,9 @@ if __name__ == '__main__':
 
     if args.list:
         list_lights(b)
-    elif len(args.light_ids) > 0:
-        logging.info(f"Running main loop with light IDs: {args.light_ids}")
+    elif len(args.color) + len(args.brightness) > 0:
+        logging.info(f"Running main loop with brightness light IDs: {args.brightness}")
+        logging.info(f"Running main loop with color light IDs: {args.color}")
         main(b, args)
     else:
         logging.error('No light IDs provided')
