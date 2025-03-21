@@ -7,6 +7,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 class TradfriLight():
     def __init__(self, light, delay = 1.0):
+        # These to variables specify if lamp needs updating of brightness, colortemp or both
+        self.needs_brightness = False
+        self.needs_colortemp = False
         self._light = light
         self._last_brightness = light.brightness
         self._last_colortemp = light.colortemp
@@ -58,14 +61,24 @@ def main(bridge, args):
         for light in tradfri_lights:
             light.check_and_update_brightness()
             light.check_and_update_colortemp()
-        
         sleep(args.poll_time)
 
 def list_lights(b: Bridge):
-    light_list = b.get_light_objects()
-    logging.info('Available lights:')
-    for light in light_list:
-        logging.info(f'{light.light_id}: {light.name}')
+    # light_list = b.get_light_objects()
+    # logging.info('Available lights:')
+    # for light in light_list:
+    #     logging.info(f'{light.light_id}: {light.name}')
+    group_list = b.get_group()
+    light_dict = b.get_light_objects(mode="id")
+    print()
+    for group_id in group_list:
+        group = b.get_group(group_id=int(group_id))
+        group_name = group["name"]
+        logging.info(f"GROUP: {group_name} [{group['type']}]")
+        for light_id in group["lights"]:
+            light = light_dict[int(light_id)]
+            logging.info(f'   {str(light.light_id).zfill(2)}: {light.name}')
+        print()
 
 if __name__ == '__main__':
     poll_default = 0.3
