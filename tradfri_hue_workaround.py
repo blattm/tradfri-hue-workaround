@@ -83,15 +83,18 @@ def list_lights(b: Bridge):
     # for light in light_list:
     #     logging.info(f'{light.light_id}: {light.name}')
     group_list = b.get_group()
-    light_dict = b.get_light_objects(mode="id")
+    all_light_objects = b.get_light_objects(mode="id")
     print()
     for group_id in group_list:
         group = b.get_group(group_id=int(group_id))
+        if group['type'] != "Room":
+            continue
         group_name = group["name"]
         logging.info(f"GROUP: {group_name} [{group['type']}]")
         for light_id in group["lights"]:
-            light = light_dict[int(light_id)]
-            logging.info(f'   {str(light.light_id).zfill(2)}: {light.name}')
+            light = all_light_objects[int(light_id)]
+            light_dict = b.get_light(light_id=int(light_id))
+            logging.info(f'   {str(light.light_id).zfill(2)}: {light.name} ({light_dict["modelid"]})')
         print()
 
 if __name__ == '__main__':
