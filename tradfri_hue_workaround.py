@@ -72,10 +72,13 @@ def main(bridge, args):
     logging.info(f"Started main loop with poll time {args.poll_time}")
 
     while True:
+        t1 = time()
         for light in tradfri_lights:
             light.check_and_update_brightness()
             light.check_and_update_colortemp()
-        sleep(args.poll_time)
+            light.check_and_update_on()
+        t2 = time()
+        sleep(max(args.poll_time-(t2-t1), 0))
 
 def list_lights(b: Bridge):
     # light_list = b.get_light_objects()
