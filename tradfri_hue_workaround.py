@@ -76,7 +76,6 @@ def main(bridge, args):
         for light in tradfri_lights:
             light.check_and_update_brightness()
             light.check_and_update_colortemp()
-            light.check_and_update_on()
         t2 = time()
         sleep(max(args.poll_time-(t2-t1), 0))
 
