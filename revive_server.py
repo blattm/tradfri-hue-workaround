@@ -1,25 +1,29 @@
+import argparse
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qsl, urlparse
 
 from tradfri_hue_revive import main_auto_mode
 
-from server_config import bridge_ip
-
 class WebRequestHandler(BaseHTTPRequestHandler):
+    @property
     def url(self):
         return urlparse(self.path)
 
+    @property
     def query_data(self):
         return dict(parse_qsl(self.url.query))
 
+    @property
     def post_data(self):
         content_length = int(self.headers.get("Content-Length", 0))
         return self.rfile.read(content_length)
 
+    @property
     def form_data(self):
         return dict(parse_qsl(self.post_data.decode("utf-8")))
 
+    @property
     def cookies(self):
         return SimpleCookie(self.headers.get("Cookie"))
 
@@ -47,5 +51,9 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Server that allows fixing frozen lights')
+    parser.add_argument('bridge_ip')
+    args = parser.parse_args()
+    bridge_ip = args.bridge_ip
     server = HTTPServer(("0.0.0.0", 8000), WebRequestHandler)
     server.serve_forever()
