@@ -3,6 +3,8 @@ from time import sleep, time
 import argparse
 import logging
 
+from settings_by_modelid import SETTINGS_BY_MODELID
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class TradfriLight():
@@ -99,11 +101,26 @@ def list_lights(b: Bridge):
             logging.info(f'   {str(light.light_id).zfill(2)}: {light.name} ({light_dict["modelid"]})')
         print()
 
+def set_id_lists_for_auto_mode(args):
+    all_light_objects = b.get_light_objects(mode="id")
+    print()
+    for light_id in all_light_objects.keys():
+        light_dict = b.get_light(light_id=int(light_id))
+        model_id = light_dict["modelid"]
+        if model_id in SETTINGS_BY_MODELID:
+            settings = SETTINGS_BY_MODELID[model_id]
+            if settings.get("brightness", False):
+                args.brightness.append(int(light_id))
+            if settings.get("color", False):
+                args.color.append(int(light_id))
+
+
 if __name__ == '__main__':
     poll_default = 0.3
     delay_default = 0.3
     parser = argparse.ArgumentParser(description='Workaround script for IKEA Trådfri property update issue on Philips Hue Bridge. Simply run the script with bridge IP and Trådfrid light ID\'s as argument. Remember to push the bridge button before starting the script the first time')
     parser.add_argument('bridge_ip')
+    parser.add_argument('--auto', action='store_true', help="if this flag is set, automatically set settings by model id")
     parser.add_argument('-c', '--color', nargs='*', type=int, default=[], metavar="ids", help="Light ids for which color needs fixing")
     parser.add_argument('-b', '--brightness', nargs='*', type=int, default=[], metavar="ids", help="Light ids for which brightness needs fixing")
     parser.add_argument('-t', '--poll_time', default=poll_default, type=float, help=f'Set how often the lights are checked for property changes. Value in seconds ({poll_default})')
@@ -119,9 +136,13 @@ if __name__ == '__main__':
 
     if args.list:
         list_lights(b)
-    elif len(args.color) + len(args.brightness) > 0:
-        logging.info(f"Running main loop with brightness light IDs: {args.brightness}")
-        logging.info(f"Running main loop with color light IDs: {args.color}")
-        main(b, args)
     else:
-        logging.error('No light IDs provided')
+        if args.auto:
+            set_id_lists_for_auto_mode(args)
+
+        if len(args.color) + len(args.brightness) > 0:
+            logging.info(f"Running main loop with brightness light IDs: {args.brightness}")
+            logging.info(f"Running main loop with color light IDs: {args.color}")
+            main(b, args)
+        else:
+            logging.error('No light IDs provided')
