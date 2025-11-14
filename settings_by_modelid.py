@@ -4,6 +4,16 @@ SETTINGS_BY_MODELID = {
         "brightness": False,
         "freezes": True,
     },
+    "TRADFRI bulb E14 WS globe 470lm": {
+        "color": True,
+        "brightness": False,
+        "freezes": True,
+    },
+    "TRADFRI bulb E14 CWS globe 806l": {
+        "color": False,
+        "brightness": True,
+        "freezes": True,
+    },
     "TRADFRI bulb E27 CWS globe 806l": {
         "color": False,
         "brightness": False,
@@ -13,10 +23,5 @@ SETTINGS_BY_MODELID = {
         "color": False,
         "brightness": True,
         "freezes": False,
-    },
-    "TRADFRI bulb E14 CWS globe 806l": {
-        "color": False,
-        "brightness": True,
-        "freezes": True,
     },
 }
