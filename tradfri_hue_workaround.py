@@ -8,7 +8,7 @@ from settings_by_modelid import get_settings
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class TradfriLight():
-    def __init__(self, light, delay = 1.0, needs_brightness=True, needs_colortemp=True):
+    def __init__(self, light, delay = 1.0, gap = 0.5, needs_brightness=True, needs_colortemp=True):
         # These to variables specify if lamp needs updating of brightness, colortemp or both
         self.needs_brightness = needs_brightness
         self.needs_colortemp = needs_colortemp
@@ -16,13 +16,26 @@ class TradfriLight():
         # Trådfri bulbs run one transition at a time and abort the running one when
         # the next command arrives, so every resend has to land instantly
         light.transitiontime = 0
-        self._last_brightness = light.brightness
+        self._state = {}
+        self.refresh()
+        self._last_brightness = self._state['bri']
         self._last_colortemp = self._colortemp()
         self._delay = delay
+        self._gap = gap
+        self._brightness_sent_at = 0
         self._brightness_has_changed = False
         self._colortemp_has_changed = False
         self._t0 = time()
         logging.info(f"Initialized TradfriLight with light ID {light.light_id} and delay {delay} for " + ("brightness " if self.needs_brightness else "")+ ("color" if self.needs_colortemp else ""))
+
+    def refresh(self):
+        '''Read the whole state of the light in a single request
+
+        Every phue property is its own HTTP GET, so reading brightness, colormode
+        and the color attribute separately costs three requests per poll and leaves
+        brightness and color coming from two different moments in time.
+        '''
+        self._state = self._light.bridge.get_light(self._light.light_id)['state']
 
     def _colortemp(self):
         '''Active color as (mode, value...) [ct|xy|hs]
@@ -33,12 +46,12 @@ class TradfriLight():
         nothing. The mode is part of the value: crossing from the kelvin space into
         the color space is a change even when the mired value stays the same.
         '''
-        mode = self._light.colormode
+        mode = self._state.get('colormode')
         if mode == 'xy':
-            return (mode, tuple(self._light.xy))
+            return (mode, tuple(self._state['xy']))
         if mode == 'hs':
-            return (mode, self._light.hue, self._light.saturation)
-        return (mode, self._light.colortemp)
+            return (mode, self._state['hue'], self._state['sat'])
+        return (mode, self._state.get('ct'))
 
     def _set_colortemp(self, colortemp):
         mode = colortemp[0]
@@ -54,8 +67,8 @@ class TradfriLight():
 
     def check_and_update_brightness(self):
         if not self.needs_brightness:
-            return False
-        brightness = self._light.brightness
+            return
+        brightness = self._state['bri']
         logging.debug(f"Checking light ID {self._light.light_id}: current brightness {brightness}, last brightness {self._last_brightness}")
 
         if self._last_brightness != brightness:
@@ -63,18 +76,22 @@ class TradfriLight():
             self._t0 = time()
             logging.debug(f"Brightness change detected for light ID {self._light.light_id}: new brightness {brightness}")
 
-        updated = False
         if self._brightness_has_changed and self._t0 + self._delay < time():
             self._light.brightness = brightness
             self._brightness_has_changed = False
-            updated = True
+            self._brightness_sent_at = time()
             logging.debug(f"Brightness updated for light ID {self._light.light_id}: new brightness {brightness}")
 
         self._last_brightness = brightness
-        return updated
 
     def check_and_update_colortemp(self):
         if not self.needs_colortemp:
+            return
+        if time() < self._brightness_sent_at + self._gap:
+            # The bulb ignores a command that arrives while it is still busy with the
+            # previous one. Leaving this to a later iteration keeps the spacing without
+            # a sleep that would hold up every other lamp in the loop.
+            logging.debug(f"Waiting out the gap for light ID {self._light.light_id}")
             return
         colortemp = self._colortemp()
         logging.debug(f"Checking light ID {self._light.light_id}: current colortemp {colortemp}, last colortemp {self._last_colortemp}")
@@ -100,6 +117,7 @@ def main(bridge, args):
         TradfriLight(
             l,
             delay=args.delay,
+            gap=args.gap,
             needs_brightness=(l.light_id in brightness_ids),
             needs_colortemp=(l.light_id in color_ids)
         )
@@ -110,11 +128,8 @@ def main(bridge, args):
     while True:
         t1 = time()
         for light in tradfri_lights:
-            # The bulb ignores a command that arrives while it is still busy with the
-            # previous one, so the colortemp update is left to the next iteration.
-            # Sleeping here instead would hold up every other lamp in the loop.
-            if light.check_and_update_brightness():
-                continue
+            light.refresh()
+            light.check_and_update_brightness()
             light.check_and_update_colortemp()
         t2 = time()
         sleep(max(args.poll_time-(t2-t1), 0))
@@ -155,6 +170,7 @@ def set_id_lists_for_auto_mode(args):
 if __name__ == '__main__':
     poll_default = 0.3
     delay_default = 0.3
+    gap_default = 0.5
     parser = argparse.ArgumentParser(description='Workaround script for IKEA Trådfri property update issue on Philips Hue Bridge. Simply run the script with bridge IP and Trådfrid light ID\'s as argument. Remember to push the bridge button before starting the script the first time')
     parser.add_argument('bridge_ip')
     parser.add_argument('--auto', action='store_true', help="if this flag is set, automatically set settings by model id")
@@ -162,6 +178,7 @@ if __name__ == '__main__':
     parser.add_argument('-b', '--brightness', nargs='*', type=int, default=[], metavar="ids", help="Light ids for which brightness needs fixing")
     parser.add_argument('-t', '--poll_time', default=poll_default, type=float, help=f'Set how often the lights are checked for property changes. Value in seconds ({poll_default})')
     parser.add_argument('-d', '--delay',type = float, help=f'How long to wait after attempted change before updating the property. Value in seconds ({delay_default})', default=delay_default)
+    parser.add_argument('-g', '--gap', type=float, default=gap_default, help=f'Minimum pause between the brightness command and the colortemp command. The bulb ignores commands that arrive while it is still busy with the previous one. Value in seconds ({gap_default})')
     parser.add_argument('-l', '--list', action='store_true', required=False, default=False,help='List available lights')
     args = parser.parse_args()
 
