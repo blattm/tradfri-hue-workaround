@@ -4,7 +4,7 @@ import argparse
 import logging
 from threading import Thread
 
-from settings_by_modelid import SETTINGS_BY_MODELID
+from settings_by_modelid import get_settings
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -63,11 +63,9 @@ def main_auto_mode(bridge_ip, room:str):
         if group_name == room:
             for light_id in group["lights"]:
                 light_dict = b.get_light(light_id=int(light_id))
-                model_id = light_dict["modelid"]
-                if model_id in SETTINGS_BY_MODELID:
-                    settings = SETTINGS_BY_MODELID[model_id]
-                    if settings.get("freezes", False):
-                        ids.append(int(light_id))
+                settings = get_settings(light_dict["modelid"], light_dict["swversion"])
+                if settings is not None and settings.get("freezes", False):
+                    ids.append(int(light_id))
 
     revive_lamps_sync(b, *ids)
 

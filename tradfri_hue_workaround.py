@@ -3,7 +3,7 @@ from time import sleep, time
 import argparse
 import logging
 
-from settings_by_modelid import SETTINGS_BY_MODELID
+from settings_by_modelid import get_settings
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -13,17 +13,48 @@ class TradfriLight():
         self.needs_brightness = needs_brightness
         self.needs_colortemp = needs_colortemp
         self._light = light
+        # Trådfri bulbs run one transition at a time and abort the running one when
+        # the next command arrives, so every resend has to land instantly
+        light.transitiontime = 0
         self._last_brightness = light.brightness
-        self._last_colortemp = light.colortemp
+        self._last_colortemp = self._colortemp()
         self._delay = delay
         self._brightness_has_changed = False
         self._colortemp_has_changed = False
         self._t0 = time()
         logging.info(f"Initialized TradfriLight with light ID {light.light_id} and delay {delay} for " + ("brightness " if self.needs_brightness else "")+ ("color" if self.needs_colortemp else ""))
 
+    def _colortemp(self):
+        '''Active color as (mode, value...) [ct|xy|hs]
+
+        A CWS bulb is driven in ct mode for neutral targets and in xy mode for the
+        warm end of the range. Attributes of the inactive mode are stale on the
+        bridge, so reading or re-sending ct while the bulb is in xy mode does
+        nothing. The mode is part of the value: crossing from the kelvin space into
+        the color space is a change even when the mired value stays the same.
+        '''
+        mode = self._light.colormode
+        if mode == 'xy':
+            return (mode, tuple(self._light.xy))
+        if mode == 'hs':
+            return (mode, self._light.hue, self._light.saturation)
+        return (mode, self._light.colortemp)
+
+    def _set_colortemp(self, colortemp):
+        mode = colortemp[0]
+        if mode == 'xy':
+            self._light.xy = list(colortemp[1])
+        elif mode == 'hs':
+            # Both in one command, setting the properties would send two
+            self._light.bridge.set_light(
+                self._light.light_id,
+                {'hue': colortemp[1], 'sat': colortemp[2]}, transitiontime=0)
+        else:
+            self._light.colortemp = colortemp[1]
+
     def check_and_update_brightness(self):
         if not self.needs_brightness:
-            return
+            return False
         brightness = self._light.brightness
         logging.debug(f"Checking light ID {self._light.light_id}: current brightness {brightness}, last brightness {self._last_brightness}")
 
@@ -32,17 +63,20 @@ class TradfriLight():
             self._t0 = time()
             logging.debug(f"Brightness change detected for light ID {self._light.light_id}: new brightness {brightness}")
 
+        updated = False
         if self._brightness_has_changed and self._t0 + self._delay < time():
             self._light.brightness = brightness
             self._brightness_has_changed = False
+            updated = True
             logging.debug(f"Brightness updated for light ID {self._light.light_id}: new brightness {brightness}")
 
         self._last_brightness = brightness
+        return updated
 
     def check_and_update_colortemp(self):
         if not self.needs_colortemp:
             return
-        colortemp = self._light.colortemp
+        colortemp = self._colortemp()
         logging.debug(f"Checking light ID {self._light.light_id}: current colortemp {colortemp}, last colortemp {self._last_colortemp}")
         if self._last_colortemp != colortemp:
             self._colortemp_has_changed = True
@@ -51,7 +85,7 @@ class TradfriLight():
 
 
         if self._colortemp_has_changed and self._t0 + self._delay < time():
-            self._light.colortemp = colortemp
+            self._set_colortemp(colortemp)
             self._colortemp_has_changed = False
             logging.debug(f"Colortemp updated for light ID {self._light.light_id}: new colortemp {colortemp}")
 
@@ -76,7 +110,11 @@ def main(bridge, args):
     while True:
         t1 = time()
         for light in tradfri_lights:
-            light.check_and_update_brightness()
+            # The bulb ignores a command that arrives while it is still busy with the
+            # previous one, so the colortemp update is left to the next iteration.
+            # Sleeping here instead would hold up every other lamp in the loop.
+            if light.check_and_update_brightness():
+                continue
             light.check_and_update_colortemp()
         t2 = time()
         sleep(max(args.poll_time-(t2-t1), 0))
@@ -106,9 +144,8 @@ def set_id_lists_for_auto_mode(args):
     print()
     for light_id in all_light_objects.keys():
         light_dict = b.get_light(light_id=int(light_id))
-        model_id = light_dict["modelid"]
-        if model_id in SETTINGS_BY_MODELID:
-            settings = SETTINGS_BY_MODELID[model_id]
+        settings = get_settings(light_dict["modelid"], light_dict["swversion"])
+        if settings is not None:
             if settings.get("brightness", False):
                 args.brightness.append(int(light_id))
             if settings.get("color", False):
